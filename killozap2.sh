@@ -4,9 +4,9 @@
 # Presumes PCF job name patterns
 # Useful for quorum loss
 
-export COMMAND=bosh
+export COMMAND=bosh2
 
-if [[ ($1 == "consul-all") || ($1 == "consul-servers") || ($1 == "consul-restart") || ($1 == "brain-restart") || ($1 == "etcd" ) || ($1 == "bbs" ) || ($1 == "ripley") || ($1 == "cells") ]]
+if [[ ($1 == "loggrep") || ($1 == "consul-all") || ($1 == "consul-servers") || ($1 == "consul-restart") || ($1 == "brain-restart") || ($1 == "etcd" ) || ($1 == "bbs" ) || ($1 == "ripley") || ($1 == "cells") ]]
         then
                 echo "Kill-o-Zapping your current CF deployment... "
         else
@@ -31,7 +31,7 @@ stopProcesses() {
      jobId=$(echo $x | awk -F "/" '{ print $1 }')
      instanceId=$(echo $x | awk -F "/" '{ print $2 }' | awk -F ',' '{ print $1 }')
      if [ $1 == "all" ]; then
-       echo Stopping all processes: $jobId Instance: $instanceId 
+       echo Stopping all processes: $jobId Instance: $instanceId
        $COMMAND ssh $jobId/$instanceId "sudo -s /var/vcap/bosh/bin/monit stop all"
        continue
      fi
@@ -69,6 +69,18 @@ restartProcesses() {
   done
 }
 
+logGrep() {
+  for x in $jobVMs; do
+     jobId=$(echo $x | awk -F "/" '{ print $1 }')
+     instanceId=$(echo $x | awk -F "/" '{ print $2 }' | awk -F ',' '{ print $1 }')
+     if [ -z $instanceId ]; then
+       continue
+     fi
+     echo Loggrepping: $jobId Instance: $instanceId Process: "$processId" Pattern: "$2" Job: "$3"
+     $COMMAND ssh -r ${jobId}/${instanceId} "sudo -s grep -R -E \"$2\" /var/vcap/sys/log/$3 || true"
+  done
+}
+
 startProcesses() {
   for x in $jobVMs; do
      jobId=$(echo $x | awk -F "/" '{ print $1 }')
@@ -91,7 +103,7 @@ startProcesses() {
 
 
 nukeProcesses() {
-  for x in $jobVMs; do 
+  for x in $jobVMs; do
      jobId=$(echo $x | awk -F "/" '{ print $1 }')
      instanceId=$(echo $x | awk -F "/" '{ print $2 }' | awk -F ',' '{ print $1 }')
      processId=$(echo $x | awk -F "," '{ print $2 }')
@@ -105,9 +117,14 @@ nukeProcesses() {
   done
 }
 
+if [ $1 == "loggrep" ]; then
+ jobVMs=$($COMMAND instances -p --json | jq -r '.Tables[0].Rows[] | select(.process != "") | [ .instance, .process ] | @csv' | sed 's/"//g' | grep consul_agent)
+ logGrep "$1" "$2" "$3"
+fi
+
 if [ $1 == "brain-restart" ]; then
  jobVMs=$($COMMAND instances |  awk -F '|' '{ print $2 }' | grep diego_brain)
- restartProcesses all 
+ restartProcesses all
 fi
 
 
@@ -204,7 +221,6 @@ if [ $1 == "ripley" ]; then
  echo Waiting 30 seconds for processes to finish exiting
  sleep 30
  startProcesses etcd
- jobVMs=$($COMMAND instances -p --json | jq -r '.Tables[0].Rows[] | select(.process != "") | [ .instance, .process ] | @csv' | sed 's/"//g' | grep diego_brain)
+ jobVMs=$($COMMAND instances --json | jq -r '.Tables[0].Rows[] | select(.process != "") | [ .instance, .process ] | @csv' | sed 's/"//g' | grep diego_brain)
  restartProcesses all
 fi
-
